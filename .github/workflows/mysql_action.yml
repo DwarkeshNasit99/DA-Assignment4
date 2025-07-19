@@ -1,8 +1,9 @@
-name: Mysql actions demo
-run-name: ${{ github.actor }} is testing out Mysql GitHub Actions 🚀
-on: [push]
+name: Subscriber Database Migration and Testing
+run-name: ${{ github.actor }} is deploying subscriber database migrations 🚀
+on: [push, pull_request]
+
 jobs:
-  setup_mysql_database:
+  setup_and_migrate_database:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -11,19 +12,77 @@ jobs:
       - name: Install MySQL client
         run: sudo apt-get update && sudo apt-get install -y mysql-client
 
-      - name: Deploy to Database
+      - name: Setup MySQL Database
         env:
           DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }} 
           DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD  || 'Secret5555'}}
-          DB_NAME: ${{ secrets.DB_NAME || 'mysql' }}
-        run: mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD $DB_NAME < schema_changes.sql
-      - name: pull flyway
+        run: |
+          # Create subscriber database and user if they don't exist
+          mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD -e "
+            CREATE DATABASE IF NOT EXISTS subscriber_db;
+            CREATE USER IF NOT EXISTS 'subscriber_user'@'%' IDENTIFIED BY 'SubscriberPass123';
+            GRANT ALL PRIVILEGES ON subscriber_db.* TO 'subscriber_user'@'%';
+            FLUSH PRIVILEGES;
+          "
+
+      - name: Pull Flyway Docker image
         run: docker pull redgate/flyway
-      - name: Run migrations
+
+      - name: Run Initial Flyway Migrations
         env:
           DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
-          DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD  || 'Secret5555'}}
+          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
           REPO_NAME: ${{ github.event.repository.name || 'PROG8850flyway'}}
-        run: docker run --rm -v "/workspaces/$REPO_NAME/migrations:/flyway/sql" redgate/flyway -user=$DB_USER -password=$DB_PASSWORD -url=jdbc:mysql://$DB_HOST:3306/flyway_test migrate
+        run: |
+          echo "Running initial migrations..."
+          docker run --rm -v "/workspaces/$REPO_NAME/migrations/initial:/flyway/sql" \
+            redgate/flyway \
+            -user=$DB_USER \
+            -password=$DB_PASSWORD \
+            -url=jdbc:mysql://$DB_HOST:3306/subscriber_db \
+            migrate
+
+      - name: Run Incremental Flyway Migrations
+        env:
+          DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
+          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
+          REPO_NAME: ${{ github.event.repository.name || 'PROG8850flyway'}}
+        run: |
+          echo "Running incremental migrations..."
+          docker run --rm -v "/workspaces/$REPO_NAME/migrations/incremental:/flyway/sql" \
+            redgate/flyway \
+            -user=$DB_USER \
+            -password=$DB_PASSWORD \
+            -url=jdbc:mysql://$DB_HOST:3306/subscriber_db \
+            migrate
+
+      - name: Setup Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.9'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mysql-connector-python pytest
+
+      - name: Run Database Tests
+        env:
+          DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
+          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
+          DB_NAME: subscriber_db
+        run: |
+          echo "Running CRUD operation tests..."
+          python -m pytest tests/test_subscriber_crud.py -v
+
+      - name: Deployment Complete
+        run: |
+          echo "🎉 Subscriber database deployment completed successfully!"
+          echo "📊 Database: subscriber_db"
+          echo "👤 User: subscriber_user"
+          echo "🔗 Tables: subscribers, subscription_preferences, subscription_history"
+          echo "✅ All migrations applied and tests passed"

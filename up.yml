@@ -1,4 +1,4 @@
-- name: bootstrap mysql
+- name: bootstrap mysql and subscriber database
   hosts: localhost
   gather_facts: false
   tasks:
@@ -23,6 +23,33 @@
       ansible.builtin.shell: curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
       args:
         creates: bin/act
+    - name: Wait for MySQL to be ready
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 3306
+        timeout: 60
+    - name: Create subscriber database and user
+      ansible.builtin.mysql_db:
+        login_host: 127.0.0.1
+        login_user: root
+        login_password: Secret5555
+        name: subscriber_db
+        state: present
+    - name: Create subscriber user with limited privileges
+      ansible.builtin.mysql_user:
+        login_host: 127.0.0.1
+        login_user: root
+        login_password: Secret5555
+        name: subscriber_user
+        password: SubscriberPass123
+        priv: 'subscriber_db.*:ALL'
+        host: '%'
+        state: present
+    - name: Run initial Flyway migrations using nektos/act
+      ansible.builtin.shell: |
+        bin/act push -W .github/workflows/mysql_action.yml
+      args:
+        chdir: .
 
 
 

@@ -1,7 +1,22 @@
-- name: remove mysql
+- name: remove mysql and subscriber database
   hosts: localhost
   gather_facts: false
   tasks:
+    - name: Remove subscriber user
+      ansible.builtin.mysql_user:
+        login_host: 127.0.0.1
+        login_user: root
+        login_password: Secret5555
+        name: subscriber_user
+        host: '%'
+        state: absent
+    - name: Remove subscriber database
+      ansible.builtin.mysql_db:
+        login_host: 127.0.0.1
+        login_user: root
+        login_password: Secret5555
+        name: subscriber_db
+        state: absent
     - name: docker compose down
       community.docker.docker_compose_v2:
         project_src: .
