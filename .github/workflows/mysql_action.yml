@@ -5,62 +5,48 @@ on: [push, pull_request]
 jobs:
   setup_and_migrate_database:
     runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: subscriber_db
+          MYSQL_USER: subscriber_user
+          MYSQL_PASSWORD: SubscriberPass123
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Install MySQL client
-        run: sudo apt-get update && sudo apt-get install -y mysql-client
-
-      - name: Setup MySQL Database
-        env:
-          DB_HOST: ${{ secrets.DB_HOST || '127.0.0.1' }} 
-          DB_USER: ${{ secrets.DB_ADMIN_USER || 'root' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD  || 'Secret5555'}}
+      - name: Wait for MySQL to be ready
         run: |
-          # Create subscriber database and user if they don't exist
-          mysql -h $DB_HOST -u $DB_USER -p$DB_PASSWORD -e "
-            CREATE DATABASE IF NOT EXISTS subscriber_db;
-            CREATE USER IF NOT EXISTS 'subscriber_user'@'%' IDENTIFIED BY 'SubscriberPass123';
-            GRANT ALL PRIVILEGES ON subscriber_db.* TO 'subscriber_user'@'%';
-            FLUSH PRIVILEGES;
-          "
+          echo "Waiting for MySQL to be ready..."
+          while ! mysqladmin ping -h"127.0.0.1" -P"3306" -u"subscriber_user" -p"SubscriberPass123" --silent; do
+            sleep 2
+          done
+          echo "MySQL is ready!"
 
       - name: Pull Flyway Docker image
-        run: docker pull redgate/flyway
+        run: docker pull flyway/flyway:9-alpine
 
-      - name: Run Initial Flyway Migrations
-        env:
-          DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
-          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
-          REPO_NAME: ${{ github.event.repository.name || 'PROG8850flyway'}}
+      - name: Run Flyway Migrations
         run: |
-          echo "Running initial migrations..."
-          docker run --rm -v "/workspaces/$REPO_NAME/migrations/initial:/flyway/sql" \
-            redgate/flyway \
-            -user=$DB_USER \
-            -password=$DB_PASSWORD \
-            -url=jdbc:mysql://$DB_HOST:3306/subscriber_db \
-            migrate
-
-      - name: Run Incremental Flyway Migrations
-        env:
-          DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
-          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
-          REPO_NAME: ${{ github.event.repository.name || 'PROG8850flyway'}}
-        run: |
-          echo "Running incremental migrations..."
-          docker run --rm -v "/workspaces/$REPO_NAME/migrations/incremental:/flyway/sql" \
-            redgate/flyway \
-            -user=$DB_USER \
-            -password=$DB_PASSWORD \
-            -url=jdbc:mysql://$DB_HOST:3306/subscriber_db \
+          echo "Running all Flyway migrations..."
+          docker run --rm \
+            -v "${{ github.workspace }}/migrations:/flyway/sql" \
+            --network host \
+            flyway/flyway:9-alpine \
+            -url=jdbc:mysql://127.0.0.1:3306/subscriber_db \
+            -user=subscriber_user \
+            -password=SubscriberPass123 \
             migrate
 
       - name: Setup Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
@@ -71,13 +57,25 @@ jobs:
 
       - name: Run Database Tests
         env:
-          DB_HOST: ${{ secrets.DB_HOST || '172.17.0.1' }} 
-          DB_USER: ${{ secrets.DB_USER || 'subscriber_user' }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'SubscriberPass123' }}
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: subscriber_user
+          DB_PASSWORD: SubscriberPass123
           DB_NAME: subscriber_db
         run: |
           echo "Running CRUD operation tests..."
           python -m pytest tests/test_subscriber_crud.py -v
+
+      - name: Verify Database Schema
+        run: |
+          echo "Verifying database schema..."
+          mysql -h 127.0.0.1 -P 3306 -u subscriber_user -pSubscriberPass123 subscriber_db -e "
+            SHOW TABLES;
+            SELECT COUNT(*) as subscriber_count FROM subscribers;
+            SELECT COUNT(*) as preferences_count FROM subscription_preferences;
+            SELECT COUNT(*) as history_count FROM subscription_history;
+            SELECT COUNT(*) as flyway_count FROM flyway_schema_history;
+          "
 
       - name: Deployment Complete
         run: |
