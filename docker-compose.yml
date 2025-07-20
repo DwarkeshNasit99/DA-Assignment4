@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: assignment4_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: subscriber_db
+      MYSQL_USER: subscriber_user
+      MYSQL_PASSWORD: SubscriberPass123
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - assignment4_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  adminer:
+    image: adminer:latest
+    container_name: assignment4_adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - mysql
+    networks:
+      - assignment4_network
+
+volumes:
+  mysql_data:
+
+networks:
+  assignment4_network:
+    driver: bridge 

@@ -18,6 +18,7 @@ class TestSubscriberCRUD(unittest.TestCase):
         """Set up database connection for all tests."""
         cls.db_config = {
             'host': os.getenv('DB_HOST', '127.0.0.1'),
+            'port': int(os.getenv('DB_PORT', '3307')),
             'user': os.getenv('DB_USER', 'subscriber_user'),
             'password': os.getenv('DB_PASSWORD', 'SubscriberPass123'),
             'database': os.getenv('DB_NAME', 'subscriber_db'),
