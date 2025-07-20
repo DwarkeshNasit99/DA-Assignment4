@@ -40,7 +40,7 @@ python -m pytest tests/ -v
 
 ---
 
-## 📊 System Components
+## System Components
 
 ### Database Schema
 - **subscribers**: Core subscriber information
@@ -91,7 +91,7 @@ Assignment 4/
 
 ---
 
-## ✅ Verification
+## Verification
 
 1. **Database Access:** http://localhost:8081 (Adminer)
 2. **Migration Status:** `docker run --rm -v $(pwd)/migrations:/flyway/sql flyway/flyway:9-alpine -url=jdbc:mysql://host.docker.internal:3306/subscriber_db -user=root -password=rootpassword info`
